@@ -1,16 +1,15 @@
-import os
 import base64
 import telebot
 from groq import Groq
 
-# Cloud variables (will be set in your host settings)
-TELEGRAM_TOKEN = os.getenv("8955332069:AAEDfBcZOX90uVRAE5yU47stzKZi9nl5JVk")
-GROQ_API_KEY = os.getenv("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")
+# Your direct tokens
+TELEGRAM_TOKEN = "8955332069:AAEDfBcZOX90uVRAE5yU47stzKZi9nl5JVk"
+GROQ_API_KEY = "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"
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
 
-# 1. Text handler (Llama 3.3 70B - fast reasoning)
+# 1. Answer text questions fast
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def handle_text(message):
     bot.send_chat_action(message.chat.id, 'typing')
@@ -23,7 +22,7 @@ def handle_text(message):
     except Exception as e:
         bot.reply_to(message, f"Error: {e}")
 
-# 2. Image handler (Llama 3.2 Vision - reads charts and homework)
+# 2. Read photos, charts, and homework
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     bot.send_chat_action(message.chat.id, 'typing')
@@ -50,5 +49,5 @@ def handle_photo(message):
     except Exception as e:
         bot.reply_to(message, f"Photo Error: {e}")
 
-print("Cloud bot is active!")
+print("Cloud bot is listening...")
 bot.infinity_polling()
