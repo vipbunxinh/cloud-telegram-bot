@@ -1,10 +1,11 @@
+import os
 import base64
 import telebot
 from groq import Groq
 
-# Your direct tokens
-TELEGRAM_TOKEN = "8955332069:AAEDfBcZOX90uVRAE5yU47stzKZi9nl5JVk"
-GROQ_API_KEY = "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"
+# Pull securely from Render environment
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
