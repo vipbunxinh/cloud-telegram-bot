@@ -5,7 +5,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from groq import Groq
 
-# 1. Dummy Web Server to satisfy Render Web Service health checks
+# 1. Giữ Render Web Service luôn chạy 24/7
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -17,30 +17,32 @@ def run_web_server():
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
-# Start the dummy web server in the background
+# Chạy web server ngầm
 threading.Thread(target=run_web_server, daemon=True).start()
 
-# 2. Telegram & Groq Setup
+# 2. Thiết lập Telegram & Groq
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
 
-# Handle text prompts
+MODEL_NAME = "qwen/qwen3.8-27b"
+
+# Xử lý tin nhắn văn bản
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def handle_text(message):
     bot.send_chat_action(message.chat.id, 'typing')
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=MODEL_NAME,
             messages=[{"role": "user", "content": message.text}]
         )
         bot.reply_to(message, response.choices[0].message.content)
     except Exception as e:
-        bot.reply_to(message, f"Error: {e}")
+        bot.reply_to(message, f"Lỗi text: {e}")
 
-# Handle image prompts
+# Xử lý hình ảnh
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     bot.send_chat_action(message.chat.id, 'typing')
@@ -52,7 +54,7 @@ def handle_photo(message):
         prompt = message.caption if message.caption else "Analyze and read this image in detail."
         
         response = client.chat.completions.create(
-            model="llama-3.2-90b-vision-preview",
+            model=MODEL_NAME,
             messages=[
                 {
                     "role": "user",
@@ -65,7 +67,7 @@ def handle_photo(message):
         )
         bot.reply_to(message, response.choices[0].message.content)
     except Exception as e:
-        bot.reply_to(message, f"Photo Error: {e}")
+        bot.reply_to(message, f"Lỗi ảnh: {e}")
 
 print("Cloud bot is listening...")
 bot.infinity_polling()
