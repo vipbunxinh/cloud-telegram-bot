@@ -6,7 +6,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from groq import Groq
 
-# 1. Máy chủ web mini để giữ Render chạy liên tục 24/7
+# 1. Mini Web Server for Render 24/7 uptime
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -20,7 +20,7 @@ def run_web_server():
 
 threading.Thread(target=run_web_server, daemon=True).start()
 
-# 2. Khởi tạo bot Telegram và Groq
+# 2. Setup Bot & Groq
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
@@ -29,35 +29,33 @@ client = Groq(api_key=GROQ_API_KEY)
 
 MODEL_NAME = "qwen/qwen3.8-27b"
 
-# Nhắc nhở để bot dùng câu ngắn gọn, từ ngữ tự nhiên và không dùng ký tự định dạng lạ
 SYSTEM_PROMPT = (
-    "Bạn là một trợ lý thông minh, thân thiện. "
-    "Dùng từ ngữ đơn giản, dễ hiểu và tự nhiên. "
-    "Không dùng câu quá dài. "
-    "Tuyệt đối không dùng dấu thăng như ### hay ## để làm tiêu đề. "
-    "Không dùng dấu hoa thị ** để in đậm. "
-    "Dùng các dấu gạch đầu dòng (-) ngắn gọn khi liệt kê."
+    "You are a helpful, warm AI assistant. "
+    "Always reply in the exact language the user asks in (e.g., English for English, Vietnamese for Vietnamese). "
+    "Keep answers concise and well-structured. "
+    "Do NOT use markdown headers like ### or ##. "
+    "Do NOT use bold asterisks like **. "
+    "Use plain text and clean bullet points (-) if needed."
 )
 
 def clean_text(text):
-    # Loại bỏ các ký tự ### và **
     text = re.sub(r'#{1,6}\s*', '', text)
     text = text.replace('**', '')
     return text.strip()
 
-# Chia nhỏ tin nhắn nếu phản hồi dài hơn 4000 ký tự để không bị lỗi Telegram
 def send_long_message(chat_id, text):
     max_len = 4000
     for i in range(0, len(text), max_len):
         bot.send_message(chat_id, text[i:i+max_len])
 
-# Xử lý tin nhắn chữ
+# Handle text messages
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def handle_text(message):
     bot.send_chat_action(message.chat.id, 'typing')
     try:
         response = client.chat.completions.create(
             model=MODEL_NAME,
+            max_tokens=800,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": message.text}
@@ -66,9 +64,9 @@ def handle_text(message):
         reply = clean_text(response.choices[0].message.content)
         send_long_message(message.chat.id, reply)
     except Exception as e:
-        bot.reply_to(message, f"Lỗi text: {e}")
+        bot.reply_to(message, f"Text Error: {e}")
 
-# Xử lý hình ảnh
+# Handle image messages
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     bot.send_chat_action(message.chat.id, 'typing')
@@ -77,10 +75,11 @@ def handle_photo(message):
         downloaded = bot.download_file(file_info.file_path)
         img_b64 = base64.b64encode(downloaded).decode('utf-8')
         
-        user_prompt = message.caption if message.caption else "Hãy phân tích và đọc chi tiết bức ảnh này."
+        user_prompt = message.caption if message.caption else "Analyze and explain this image clearly."
         
         response = client.chat.completions.create(
             model=MODEL_NAME,
+            max_tokens=800,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
@@ -95,7 +94,7 @@ def handle_photo(message):
         reply = clean_text(response.choices[0].message.content)
         send_long_message(message.chat.id, reply)
     except Exception as e:
-        bot.reply_to(message, f"Lỗi ảnh: {e}")
+        bot.reply_to(message, f"Photo Error: {e}")
 
 print("Cloud bot is listening...")
 bot.infinity_polling()
