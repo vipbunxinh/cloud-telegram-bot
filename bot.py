@@ -1,12 +1,13 @@
 import os
 import re
+import json
 import base64
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from groq import Groq
 
-# 1. Giữ Render Web Service luôn chạy 24/7
+# 1. Background Web Server for Render 24/7 uptime
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -20,7 +21,7 @@ def run_web_server():
 
 threading.Thread(target=run_web_server, daemon=True).start()
 
-# 2. Khởi tạo Telegram & Groq
+# 2. Setup Bot & Groq
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
@@ -30,37 +31,52 @@ client = Groq(api_key=GROQ_API_KEY)
 TEXT_MODEL = "openai/gpt-oss-120b"
 VISION_MODEL = "qwen/qwen3.8-27b"
 
-user_conversations = {}
-
 SYSTEM_PROMPT = (
     "You are a helpful, warm AI assistant. "
     "Always reply in the exact language the user asks in (e.g., English for English, Vietnamese for Vietnamese). "
-    "Keep answers natural and clear. "
+    "Provide thorough, detailed, and complete answers without stopping early. "
     "Do NOT use markdown headers like ### or ##. "
     "Do NOT use bold asterisks like **. "
     "Use clean plain text with simple bullet points (-) when needed."
 )
+
+HISTORY_FILE = "chat_history.json"
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_history(history_data):
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history_data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+user_conversations = load_history()
 
 def clean_text(text):
     text = re.sub(r'#{1,6}\s*', '', text)
     text = text.replace('**', '')
     return text.strip()
 
-# Hàm tự chia nhỏ tin nhắn nếu dài hơn 4000 ký tự và gửi lần lượt từng tin
 def send_long_message(chat_id, text):
     max_len = 4000
     for i in range(0, len(text), max_len):
         bot.send_message(chat_id, text[i:i+max_len])
 
-def get_user_history(user_id):
-    if user_id not in user_conversations:
-        user_conversations[user_id] = []
-    return user_conversations[user_id]
+def get_user_history(user_id_str):
+    if user_id_str not in user_conversations:
+        user_conversations[user_id_str] = []
+    return user_conversations[user_id_str]
 
-# Tự động yêu cầu AI viết tiếp nếu câu trả lời bị ngắt do chạm trần token
-def generate_complete_response(model_name, messages_payload, max_tokens=800):
+def generate_complete_response(model_name, messages_payload, max_tokens=2000):
     full_content = ""
-    # Cho phép AI viết tiếp tối đa 3 lần để hoàn thành toàn bộ nội dung
     for _ in range(3):
         response = client.chat.completions.create(
             model=model_name,
@@ -71,26 +87,30 @@ def generate_complete_response(model_name, messages_payload, max_tokens=800):
         text_chunk = clean_text(choice.message.content)
         full_content += ("\n" + text_chunk if full_content else text_chunk)
         
-        # Nếu AI đã trả lời xong tự nhiên thì dừng vòng lặp
         if choice.finish_reason != "length":
             break
             
-        # Thêm đoạn vừa viết vào ngữ cảnh và yêu cầu viết tiếp phần còn lại
         messages_payload.append({"role": "assistant", "content": text_chunk})
         messages_payload.append({"role": "user", "content": "Continue exactly where you left off without repeating."})
         
     return full_content
 
-# Xử lý tin nhắn chữ
+# Handle Text Prompts
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def handle_text(message):
     bot.send_chat_action(message.chat.id, 'typing')
-    user_id = message.chat.id
+    user_id = str(message.chat.id)
     history = get_user_history(user_id)
     
-    history.append({"role": "user", "content": message.text})
-    if len(history) > 6:
-        history = history[-6:]
+    # Capture replied message text if user used Telegram reply feature
+    user_input = message.text
+    if message.reply_to_message and message.reply_to_message.text:
+        quoted_text = message.reply_to_message.text
+        user_input = f"[Quoting previous message: \"{quoted_text}\"]\nUser request: {message.text}"
+    
+    history.append({"role": "user", "content": user_input})
+    if len(history) > 10:
+        history = history[-10:]
         user_conversations[user_id] = history
         
     messages_payload = [{"role": "system", "content": SYSTEM_PROMPT}] + history
@@ -98,15 +118,17 @@ def handle_text(message):
     try:
         reply = generate_complete_response(TEXT_MODEL, messages_payload, max_tokens=2000)
         history.append({"role": "assistant", "content": reply})
-        send_long_message(user_id, reply)
+        user_conversations[user_id] = history
+        save_history(user_conversations)
+        send_long_message(message.chat.id, reply)
     except Exception as e:
         bot.reply_to(message, f"Text Error: {e}")
 
-# Xử lý hình ảnh
+# Handle Image Prompts
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     bot.send_chat_action(message.chat.id, 'typing')
-    user_id = message.chat.id
+    user_id = str(message.chat.id)
     history = get_user_history(user_id)
     
     try:
@@ -130,7 +152,9 @@ def handle_photo(message):
         reply = generate_complete_response(VISION_MODEL, messages_payload, max_tokens=800)
         history.append({"role": "user", "content": f"[Sent an image]: {user_prompt}"})
         history.append({"role": "assistant", "content": reply})
-        send_long_message(user_id, reply)
+        user_conversations[user_id] = history
+        save_history(user_conversations)
+        send_long_message(message.chat.id, reply)
     except Exception as e:
         bot.reply_to(message, f"Photo Error: {e}")
 
