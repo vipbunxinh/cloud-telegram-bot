@@ -52,7 +52,7 @@ def handle_photo(message):
         prompt = message.caption if message.caption else "Analyze and read this image in detail."
         
         response = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
+            model="llama-3.2-90b-vision-preview",
             messages=[
                 {
                     "role": "user",
