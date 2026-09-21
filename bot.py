@@ -38,7 +38,7 @@ def handle_text(message):
             model=MODEL_NAME,
             messages=[{"role": "user", "content": message.text}]
         )
-        bot.reply_to(message, response.choices[0].message.content)
+        bot.reply_to(message, response.choices[0].message.content, parse_mode="Markdown")
     except Exception as e:
         bot.reply_to(message, f"Lỗi text: {e}")
 
@@ -65,7 +65,7 @@ def handle_photo(message):
                 }
             ]
         )
-        bot.reply_to(message, response.choices[0].message.content)
+        bot.reply_to(message, response.choices[0].message.content, parse_mode="Markdown")
     except Exception as e:
         bot.reply_to(message, f"Lỗi ảnh: {e}")
 
